@@ -1,0 +1,252 @@
+================================================================================
+PERSONAL FINANCE ASSISTANT — DESIGN NOTES
+Take-home design note. Written to be honest about trade-offs, not to oversell.
+================================================================================
+
+CONTENTS
+  0. TL;DR
+  1. Features covered & completion level
+  2. Key architectural & technical decisions
+  3. Assumptions, trade-offs & limitations
+  4. What was intentionally skipped, stubbed, or simplified
+  5. Challenges faced & how I handled them
+  6. Thinking process & decision rationale
+  7. Technology choices and why (decision log)
+
+
+--------------------------------------------------------------------------------
+0. TL;DR
+--------------------------------------------------------------------------------
+The single decision everything else hangs off: the LLM never ingests raw
+transactions. It calls SQL-backed tools that return small aggregates. That keeps
+the product fast, cheap, and correct as history grows to years and users grow to
+many — which is precisely the tension the brief asks you to resolve. On top of
+that sits a model router (match effort to task) and a bounded agent loop (chain
+tools for multi-step questions). Auth is bought (Clerk), the hard parts are
+built.
+
+
+--------------------------------------------------------------------------------
+1. FEATURES COVERED & COMPLETION LEVEL
+--------------------------------------------------------------------------------
+Fully built and verified end-to-end:
+
+  - Accounts / sign-in / multi-user isolation .............. DONE (Clerk + per-userId)
+  - CSV import with messy-data handling .................... DONE (tested, see §5)
+  - Mock bank endpoint + "connect bank" sync .............. DONE (source-agnostic pipeline)
+  - Synthetic dataset (~18 months, 422 txns) .............. DONE (no sample was provided)
+  - Conversational assistant (agent + tool calling) ....... DONE
+  - Model routing / selection ............................. DONE (fast-path + classifier)
+  - Answer spending questions ............................. DONE (query_spending, largest)
+  - Compare across time ................................... DONE (compare_periods)
+  - Recurring subscription detection ...................... DONE (deterministic)
+  - Unusual-activity / anomaly flagging ................... DONE (statistical)
+  - Budget tracking + warnings ............................ DONE (set/get budget)
+  - Plain-English summary + cut-back suggestions .......... DONE (summary -> reasoning model)
+  - Look up unfamiliar charges online ..................... DONE (Gemini Search grounding)
+  - Receipt photo -> expense .............................. DONE (vision + confirm step)
+  - Remember user context ................................. DONE (set_memory -> system prompt)
+  - Dashboard (spend, trend, budgets, recurring, anomalies) DONE
+  - Unit tests for the deterministic data layer ........... DONE (17 tests passing)
+
+Completion level is "a narrow-to-medium slice that genuinely works" rather than
+a broad set of half-features. Every capability listed above runs against real
+seeded data, not a mock. The chat and receipt features require a GEMINI_API_KEY;
+everything else (data, dashboard, import, dedupe, detection, budgets) works
+without any keys at all.
+
+
+--------------------------------------------------------------------------------
+2. KEY ARCHITECTURAL & TECHNICAL DECISIONS
+--------------------------------------------------------------------------------
+
+(A) The model never sees raw transactions — it calls SQL tools.
+    This is the most important decision and the answer to "handle context far
+    larger than the model can hold." A user with five years of data has tens of
+    thousands of rows; you cannot put those in a prompt, and you shouldn't want
+    to. Instead the assistant has ~11 tools (query_spending, compare_periods,
+    list_recurring_charges, detect_anomalies, get_budget_status, etc.). Each is a
+    thin wrapper over an indexed aggregate that returns a few hundred bytes. The
+    prompt size — and therefore latency and cost — is independent of how much
+    history exists. As a side effect it also kills numerical hallucination:
+    figures are computed in SQL, so the model literally cannot misadd.
+
+(B) Money is integer cents, everywhere.
+    Floats and money don't mix (0.1 + 0.2 != 0.3). Amounts are signed integers
+    of minor units: debits negative, credits positive. Parsing of messy inputs
+    ("$1,234.56", "(45.00)", "1.234,56") happens once, at the edge.
+
+(C) A router matches model effort to the task.
+    The brief's constraints (fast + cheap) fight quality. Sending everything to
+    the strongest model is wasteful; sending everything to the cheapest is dumb
+    on hard questions. So:
+       - obvious lookups            -> gemini-2.5-flash-lite   (cheap, instant)
+       - open-ended reasoning/advice -> gemini-2.5-pro          (depth where it pays)
+       - everything else            -> gemini-2.5-flash        (balanced default)
+    A regex fast-path classifies the clear-cut cases with ZERO added latency;
+    only genuinely ambiguous messages cost one tiny flash-lite classification.
+
+(D) Deterministic work is code, not model calls.
+    Categorization, merchant normalization, dedupe, recurring detection and
+    anomaly detection are plain functions. They run on every row, so they must be
+    free and instant. The LLM is reserved for language and judgement, not for
+    labelling thousands of rows — that's the "right tool for the job" signal.
+
+(E) One ingestion pipeline, many sources.
+    CSV upload, the mock bank, and confirmed receipts all flow through the same
+    normalize -> categorize -> dedupe path. Adding a real bank aggregator later
+    means writing one adapter, not a new pipeline. Dedupe is a per-user hash of
+    (day, amount, merchant), enforced by a unique index, so re-imports and
+    cross-source overlaps never double-count.
+
+(F) Bought auth, with a graceful no-auth fallback.
+    Clerk handles identity. But the entire app reads identity through a single
+    getUserId() helper that returns a fixed demo user when Clerk isn't
+    configured — so a reviewer can run the whole thing without signing up for
+    anything, while real multi-user isolation switches on the moment keys exist.
+
+
+--------------------------------------------------------------------------------
+3. ASSUMPTIONS, TRADE-OFFS & LIMITATIONS
+--------------------------------------------------------------------------------
+Assumptions (written down rather than asked, per the ground rules):
+  - No sample CSV / mock bank was present in the project, so I generated a
+    realistic synthetic dataset and built a mock bank endpoint that emits a
+    typical bank-export JSON shape.
+  - Single currency per user in the demo data (USD). The schema stores currency
+    per transaction, but cross-currency conversion/normalization is not done.
+  - Date ambiguity (D/M/Y vs M/D/Y) is resolved by preferring US order unless the
+    first field is > 12. This is a heuristic; truly ambiguous dates can be wrong.
+  - "Spending" = negative amounts; "income" = positive. Refunds appear as
+    positive non-income credits and are not specially reconciled against the
+    original charge.
+
+Trade-offs:
+  - SQLite over Postgres: chosen for zero-setup review. Trade-off is concurrency
+    and some aggregate features; mitigated by keeping the schema Postgres-ready.
+  - Recurring/anomaly detection run per request rather than precomputed. Fine at
+    demo scale and indexed; at production scale they'd be cached/rolled up.
+  - Non-streaming responses. Simpler and reliable; streaming would improve
+    perceived latency but wasn't worth the time within the slice.
+  - The router uses heuristics + a one-word classifier rather than a learned
+    policy. Cheap and good enough; it can misroute unusual phrasings.
+
+Limitations (known, honest):
+  - Anomaly detection needs >= 4 prior charges in a category to have a baseline,
+    so a big spend in a sparse category (e.g. a one-off electronics purchase) may
+    not flag. The dining outlier in the demo does flag; the Best Buy one does not.
+  - Receipt extraction quality is bounded by the vision model; very poor photos
+    will land in the "please confirm" path with low confidence by design.
+  - No pagination/virtualization on the dashboard lists (not needed at demo size).
+
+
+--------------------------------------------------------------------------------
+4. WHAT WAS INTENTIONALLY SKIPPED, STUBBED, OR SIMPLIFIED
+--------------------------------------------------------------------------------
+  - Real bank integration (Plaid/TrueLayer): STUBBED as a mock endpoint. The
+    interesting part — a source-agnostic ingestion + dedupe pipeline — is real.
+  - Background jobs / caching layer (e.g. Redis, cron rollups): SKIPPED in code,
+    DESCRIBED as the scaling path. Per-request analytics are honest about this.
+  - Streaming chat responses: SKIPPED for reliability within the time budget.
+  - Multi-currency conversion: SKIPPED; currency is stored but not normalized.
+  - Receipt -> automatic duplicate reconciliation against an existing card
+    charge: SIMPLIFIED to dedupe-by-hash (won't double-count an identical
+    receipt, but doesn't match a receipt to a pre-existing bank line).
+  - Fine-grained Clerk UI theming and org/multi-account features: SKIPPED; default
+    Clerk components are used (commodity work).
+  - Exhaustive test coverage: focused tests on the deterministic data layer
+    (the part most likely to silently corrupt data); the LLM/agent paths are
+    validated manually.
+
+
+--------------------------------------------------------------------------------
+5. CHALLENGES FACED & HOW I HANDLED THEM
+--------------------------------------------------------------------------------
+  - Prisma 7 (latest) had just dropped the classic `url = env(...)` datasource in
+    favour of a driver-adapter + prisma.config.ts setup. That's real ceremony for
+    no benefit on a SQLite take-home, so I pinned Prisma 6 — a deliberate
+    build-vs-complexity call, noted here.
+
+  - SQLite's createMany has no `skipDuplicates`. My first dedupe relied on it.
+    Fix: pre-filter the batch against existing hashes with one indexed `IN`
+    lookup, then insert only the new rows. This is actually the more scale-aware
+    approach and is what shipped.
+
+  - A timezone bug in date parsing: the fallback `new Date("Mar 15 2026")` parses
+    in local time, and converting to UTC shifted the calendar day by one. A unit
+    test caught it; fixed by rebuilding the date from local components into UTC.
+
+  - Clerk v7 and @google/genai v2 are recent majors with changed APIs (e.g.
+    Clerk removed `afterSignOutUrl` from UserButton; grounding can't be combined
+    with function-calling in one Gemini request). Handled by isolating the
+    grounded merchant-lookup as its own call and adjusting to the new props.
+
+  - Messy CSV correctness: verified against an intentionally awful sample
+    (mixed date formats, parenthesised and European amounts, a quoted comma, a
+    junk line, missing fields, a duplicate). Result: 6 imported, 1 duplicate,
+    3 skipped with categorized reasons — exactly as intended.
+
+
+--------------------------------------------------------------------------------
+6. THINKING PROCESS & DECISION RATIONALE
+--------------------------------------------------------------------------------
+I read the brief as a systems problem disguised as a feature list. The line that
+set the whole design was: "a long history cannot be processed all at once." If
+you accept that, the architecture writes itself — the model must query, not read.
+Everything cascades from there: tools instead of context, SQL for arithmetic,
+the model for language and orchestration.
+
+I then scoped by asking, for each capability, "is this cheap lookup, heavy
+reasoning, vision, or reaching outside the system?" — because the brief explicitly
+rewards recognising they are NOT the same kind of work. That classification became
+the router and the model-tier mapping.
+
+For build-vs-buy I drew a hard line: auth is a solved problem, so Clerk; the
+finance reasoning engine is the actual product, so that's where the hours went. I
+added the no-Clerk fallback because "easy to run/review" is itself a real product
+quality, and it demonstrates the identity layer is cleanly abstracted.
+
+Finally I optimised for "something I'd not be afraid to change" (the brief warns
+of a mid-session curveball). The source-agnostic ingestion pipeline, the single
+getUserId() seam, and tools that are independent of each other mean a new input
+type or requirement is an addition, not a rewrite.
+
+What I'd do next with more time, in priority order: precompute + cache the
+detection passes; stream responses; richer receipt-to-charge reconciliation;
+move to Postgres with monthly rollup tables; and a learned (cheap) router.
+
+
+--------------------------------------------------------------------------------
+7. TECHNOLOGY CHOICES AND WHY (DECISION LOG)
+--------------------------------------------------------------------------------
+  Next.js (App Router) + TypeScript
+     One repo for UI + API, fast to a polished full-stack app, server routes are a
+     natural home for the agent. Type safety matters for money code.
+
+  Google Gemini (@google/genai)  [chosen by requirement; good fit]
+     Generous free tier directly serves the "economical to run" constraint. Clean
+     tier ladder (flash-lite / flash / pro) maps perfectly onto the routing story.
+     Native vision (receipts) and built-in Google Search grounding (online charge
+     lookup) meant two hard features came from one provider with no extra plumbing.
+
+  Clerk (auth)
+     Commodity work the brief says to buy. Dropped in, with a dev-mode fallback so
+     it never blocks running the app.
+
+  SQLite + Prisma 6
+     Zero-setup for the reviewer; Prisma gives typed queries and easy groupBy
+     aggregates. Schema written to be Postgres-compatible so scaling is a config
+     change. Pinned to v6 to avoid Prisma 7's adapter ceremony (see §5).
+
+  papaparse
+     Robust, forgiving CSV parsing — important given the messy-input requirement.
+
+  Tailwind CSS
+     Fast path to a clean, legible dashboard + chat without bikeshedding styles.
+
+  Vitest
+     Light, fast test runner for the deterministic data layer.
+
+================================================================================
+END
+================================================================================
