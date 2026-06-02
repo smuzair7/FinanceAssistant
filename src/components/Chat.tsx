@@ -65,7 +65,7 @@ export default function Chat({ onDataChanged }: { onDataChanged?: () => void }) 
   }, []);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, busy, draft]);
 
   async function send(text: string) {
@@ -163,22 +163,24 @@ export default function Chat({ onDataChanged }: { onDataChanged?: () => void }) 
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 py-3 border-b border-slate-200">
-        <h2 className="font-semibold text-slate-800">Assistant</h2>
-        <p className="text-xs text-slate-500">Ask about your money, or upload a receipt.</p>
+      <div className="px-5 py-3.5 border-b border-white/60 bg-white/40 backdrop-blur">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          </span>
+          <h2 className="font-display font-semibold text-slate-800">Assistant</h2>
+        </div>
+        <p className="text-xs text-slate-400 mt-0.5">Ask about your money, or upload a receipt.</p>
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-thin p-4 space-y-4">
         {messages.length === 0 && !draft && (
-          <div className="text-sm text-slate-500 space-y-3">
-            <p>Try one of these:</p>
+          <div className="text-sm text-slate-500 space-y-3 fade-up">
+            <p className="text-slate-400">Try asking…</p>
             <div className="flex flex-wrap gap-2">
               {SUGGESTIONS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => send(s)}
-                  className="text-left rounded-full border border-slate-300 px-3 py-1.5 hover:bg-white"
-                >
+                <button key={s} onClick={() => send(s)} className="chip text-left">
                   {s}
                 </button>
               ))}
@@ -187,25 +189,30 @@ export default function Chat({ onDataChanged }: { onDataChanged?: () => void }) 
         )}
 
         {messages.map((m) => (
-          <div key={m.id} className={m.role === "user" ? "text-right" : "text-left"}>
+          <div key={m.id} className={`fade-up ${m.role === "user" ? "text-right" : "text-left"}`}>
             <div
-              className={`inline-block max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
+              className={`inline-block max-w-[88%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ${
                 m.role === "user"
-                  ? "bg-indigo-600 text-white"
-                  : "bg-white border border-slate-200 text-slate-800"
+                  ? "text-white rounded-br-md shadow-lg shadow-indigo-500/20"
+                  : "bg-white/80 border border-white/70 text-slate-800 rounded-bl-md backdrop-blur shadow-sm"
               }`}
+              style={
+                m.role === "user"
+                  ? { backgroundImage: "linear-gradient(135deg,#7c3aed,#4f46e5 60%,#2563eb)" }
+                  : undefined
+              }
             >
               {m.content}
             </div>
             {m.role === "assistant" && m.meta && (
-              <div className="mt-1 flex flex-wrap gap-1.5 items-center text-[11px] text-slate-400">
+              <div className="mt-1.5 flex flex-wrap gap-1.5 items-center text-[11px]">
                 {m.meta.tier && (
-                  <span className={`rounded px-1.5 py-0.5 ${TIER_STYLE[m.meta.tier] ?? "bg-slate-100"}`}>
+                  <span className={`rounded-md px-1.5 py-0.5 font-medium ${TIER_STYLE[m.meta.tier] ?? "bg-slate-100 text-slate-500"}`}>
                     {m.meta.tier} · {m.meta.model}
                   </span>
                 )}
                 {m.meta.toolsUsed && m.meta.toolsUsed.length > 0 && (
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5">
+                  <span className="rounded-md bg-slate-100 text-slate-500 px-1.5 py-0.5">
                     🔧 {m.meta.toolsUsed.join(", ")}
                   </span>
                 )}
@@ -215,8 +222,10 @@ export default function Chat({ onDataChanged }: { onDataChanged?: () => void }) 
         ))}
 
         {draft && (
-          <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
-            <p className="font-medium text-amber-800 mb-1">Confirm this receipt</p>
+          <div className="card border-amber-200/80 bg-amber-50/80 p-4 text-sm fade-up">
+            <p className="font-semibold text-amber-800 mb-1 flex items-center gap-1.5">
+              <span>🧾</span> Confirm this receipt
+            </p>
             {draft.confidence < 0.7 && (
               <p className="text-xs text-amber-700 mb-2">
                 Low confidence ({Math.round(draft.confidence * 100)}%){draft.notes ? ` — ${draft.notes}` : ""}. Please check the details.
@@ -224,39 +233,45 @@ export default function Chat({ onDataChanged }: { onDataChanged?: () => void }) 
             )}
             <div className="grid grid-cols-2 gap-2">
               <label className="text-xs text-slate-600">Merchant
-                <input className="mt-0.5 w-full rounded border px-2 py-1" value={draft.merchant} onChange={(e) => setDraft({ ...draft, merchant: e.target.value })} />
+                <input className="mt-0.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5" value={draft.merchant} onChange={(e) => setDraft({ ...draft, merchant: e.target.value })} />
               </label>
               <label className="text-xs text-slate-600">Total
-                <input className="mt-0.5 w-full rounded border px-2 py-1" value={draft.total} onChange={(e) => setDraft({ ...draft, total: e.target.value })} />
+                <input className="mt-0.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 tnum" value={draft.total} onChange={(e) => setDraft({ ...draft, total: e.target.value })} />
               </label>
               <label className="text-xs text-slate-600">Date
-                <input className="mt-0.5 w-full rounded border px-2 py-1" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
+                <input className="mt-0.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 tnum" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
               </label>
               <label className="text-xs text-slate-600">Category
-                <input className="mt-0.5 w-full rounded border px-2 py-1" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} />
+                <input className="mt-0.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} />
               </label>
             </div>
             <div className="mt-3 flex gap-2">
-              <button onClick={confirmReceipt} disabled={busy} className="rounded bg-emerald-600 text-white px-3 py-1.5 text-xs font-medium disabled:opacity-50">
+              <button onClick={confirmReceipt} disabled={busy} className="btn-grad px-3.5 py-1.5 text-xs">
                 Save expense
               </button>
-              <button onClick={() => setDraft(null)} className="rounded border px-3 py-1.5 text-xs">
+              <button onClick={() => setDraft(null)} className="btn-ghost px-3.5 py-1.5 text-xs">
                 Cancel
               </button>
             </div>
           </div>
         )}
 
-        {busy && <div className="text-sm text-slate-400">Thinking…</div>}
+        {busy && (
+          <div className="flex items-center gap-1 text-slate-400 text-sm">
+            <span className="dot">•</span>
+            <span className="dot" style={{ animationDelay: "0.2s" }}>•</span>
+            <span className="dot" style={{ animationDelay: "0.4s" }}>•</span>
+          </div>
+        )}
       </div>
 
-      <div className="border-t border-slate-200 p-3">
+      <div className="border-t border-white/60 bg-white/40 backdrop-blur p-3">
         <div className="flex gap-2 items-end">
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickFile} />
           <button
             onClick={() => fileRef.current?.click()}
             title="Upload receipt"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-slate-600 hover:bg-white"
+            className="btn-ghost h-10 w-10 text-lg shrink-0"
           >
             📎
           </button>
@@ -271,13 +286,9 @@ export default function Chat({ onDataChanged }: { onDataChanged?: () => void }) 
             }}
             rows={1}
             placeholder="Ask about your finances…"
-            className="flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+            className="flex-1 resize-none rounded-xl border border-slate-200 bg-white/80 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300/60 focus:border-indigo-300"
           />
-          <button
-            onClick={() => send(input)}
-            disabled={busy}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-white text-sm font-medium hover:bg-indigo-500 disabled:opacity-50"
-          >
+          <button onClick={() => send(input)} disabled={busy} className="btn-grad px-4 py-2.5 text-sm shrink-0">
             Send
           </button>
         </div>

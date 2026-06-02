@@ -6,14 +6,158 @@
   color-scheme: light;
 }
 
-body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+@layer base {
+  body {
+    @apply text-slate-800 antialiased;
+    background-color: #f4f5fb;
+    font-feature-settings: "cv11", "ss01";
+  }
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
+    @apply tracking-tight;
+  }
+  /* Money / figures read better aligned */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
-/* Thin scrollbar for the chat panel */
+@layer components {
+  /* Frosted surface used for every panel */
+  .card {
+    @apply rounded-2xl border border-white/70 bg-white/65 backdrop-blur-xl;
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 14px 38px -16px rgba(30, 27, 75, 0.18);
+  }
+  .card-hover {
+    @apply transition-all duration-300 ease-out;
+  }
+  .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.05),
+      0 26px 50px -20px rgba(79, 70, 229, 0.28);
+  }
+
+  .gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(120deg, #7c3aed 0%, #4f46e5 45%, #0ea5e9 100%);
+  }
+
+  .brand-mark {
+    background-image: linear-gradient(135deg, #8b5cf6, #4f46e5 55%, #2563eb);
+    box-shadow: 0 8px 20px -6px rgba(79, 70, 229, 0.55);
+  }
+
+  .btn-grad {
+    @apply inline-flex items-center justify-center font-medium text-white rounded-xl transition-all duration-200;
+    background-image: linear-gradient(135deg, #7c3aed, #4f46e5 50%, #2563eb);
+    box-shadow: 0 10px 24px -8px rgba(79, 70, 229, 0.55);
+  }
+  .btn-grad:hover {
+    filter: brightness(1.08) saturate(1.05);
+    transform: translateY(-1px);
+  }
+  .btn-grad:active {
+    transform: translateY(0);
+  }
+  .btn-grad:disabled {
+    @apply opacity-50;
+    transform: none;
+    filter: none;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center font-medium rounded-xl border border-slate-200/80 bg-white/70 text-slate-700 backdrop-blur transition-all duration-200 hover:bg-white hover:border-slate-300;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-slate-200/80 bg-white/70 px-3 py-1.5 text-sm text-slate-600 backdrop-blur transition-all duration-200;
+  }
+  .chip:hover {
+    @apply border-indigo-200 bg-white text-indigo-700;
+    transform: translateY(-1px);
+  }
+}
+
+/* ---- Aurora gradient canvas (sits behind everything) ---- */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 500px at 100% -5%, rgba(99, 102, 241, 0.10), transparent 60%),
+    radial-gradient(800px 500px at -10% 110%, rgba(14, 165, 233, 0.10), transparent 60%);
+}
+.aurora::before,
+.aurora::after {
+  content: "";
+  position: absolute;
+  width: 38rem;
+  height: 38rem;
+  border-radius: 9999px;
+  filter: blur(90px);
+  opacity: 0.45;
+}
+.aurora::before {
+  top: -10rem;
+  left: -6rem;
+  background: radial-gradient(circle at 30% 30%, #a78bfa, #6366f1 60%, transparent 70%);
+  animation: drift1 22s ease-in-out infinite alternate;
+}
+.aurora::after {
+  bottom: -12rem;
+  right: -8rem;
+  background: radial-gradient(circle at 70% 70%, #38bdf8, #22d3ee 55%, transparent 70%);
+  animation: drift2 26s ease-in-out infinite alternate;
+}
+
+@keyframes drift1 {
+  to {
+    transform: translate(6rem, 4rem) scale(1.1);
+  }
+}
+@keyframes drift2 {
+  to {
+    transform: translate(-5rem, -3rem) scale(1.08);
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-up {
+  animation: fade-up 0.5s ease-out both;
+}
+
+@keyframes blink {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
+}
+.dot { animation: blink 1.2s infinite both; }
+
+/* Thin scrollbar for panels */
 .scroll-thin::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
 .scroll-thin::-webkit-scrollbar-thumb {
-  @apply bg-slate-300 rounded-full;
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 9999px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
 }

@@ -40,21 +40,21 @@ export default function ImportPanel({ onDone }: { onDone?: () => void }) {
         <button
           disabled={busy}
           onClick={() => run(() => fetch("/api/seed-demo", { method: "POST" }), "Loading demo data")}
-          className="rounded-lg bg-indigo-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50"
+          className="btn-grad px-3.5 py-2 text-sm"
         >
           Load demo data
         </button>
         <button
           disabled={busy}
           onClick={() => run(() => fetch("/api/bank/sync", { method: "POST" }), "Connecting bank")}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-white disabled:opacity-50"
+          className="btn-ghost px-3.5 py-2 text-sm disabled:opacity-50"
         >
           Connect mock bank
         </button>
         <button
           disabled={busy}
           onClick={() => fileRef.current?.click()}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-white disabled:opacity-50"
+          className="btn-ghost px-3.5 py-2 text-sm disabled:opacity-50"
         >
           Upload CSV
         </button>
@@ -73,7 +73,9 @@ export default function ImportPanel({ onDone }: { onDone?: () => void }) {
           }}
         />
       </div>
-      {status && <p className="text-xs text-slate-500">{status}</p>}
+      {status && (
+        <p className="text-xs text-slate-500 rounded-lg bg-slate-100/70 px-3 py-2">{status}</p>
+      )}
     </div>
   );
 }
