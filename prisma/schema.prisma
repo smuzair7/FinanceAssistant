@@ -1,0 +1,76 @@
+// Personal Finance Assistant — data model
+// SQLite for zero-setup local runs. The schema is intentionally Postgres-compatible:
+// switch `provider` to "postgresql" and point DATABASE_URL at Postgres to scale out.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// A financial transaction. Money is stored as a SIGNED INTEGER of minor units
+// (cents/pence): debits negative, credits positive. Never floats — avoids the
+// classic 0.1 + 0.2 rounding bugs that corrupt financial sums.
+model Transaction {
+  id             String   @id @default(cuid())
+  userId         String
+  date           DateTime
+  amountCents    Int
+  currency       String   @default("USD")
+  rawDescription String
+  merchant       String // normalized merchant name
+  category       String // e.g. Groceries, Dining, Rent, Income, Subscriptions
+  source         String   @default("csv") // csv | bank | receipt | manual
+  // Stable hash of (userId,date,amount,merchant) used to reject duplicate rows
+  // on re-import. Unique per user so the same charge can exist across users.
+  dedupeHash     String
+  createdAt      DateTime @default(now())
+
+  @@unique([userId, dedupeHash])
+  @@index([userId, date])
+  @@index([userId, category, date])
+}
+
+// A spending budget. A null category means an overall budget.
+model Budget {
+  id          String   @id @default(cuid())
+  userId      String
+  category    String? // null = overall budget
+  period      String   @default("monthly")
+  amountCents Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, category, period])
+  @@index([userId])
+}
+
+// Durable user memory: "I get paid on the 1st", "don't count rent in food budget".
+// Injected into the assistant's system prompt so context persists across sessions.
+model UserFact {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String // short slug, e.g. "payday"
+  value     String // structured value, e.g. "1"
+  rawText   String // the original sentence the user said
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+  @@index([userId])
+}
+
+// Persisted chat so conversations survive reloads.
+model Message {
+  id        String   @id @default(cuid())
+  userId    String
+  role      String // user | assistant
+  content   String
+  meta      String? // JSON: model used, tools called, route — for transparency UI
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
